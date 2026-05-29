@@ -1,0 +1,36 @@
+# Credenciales — NUNCA subir a GitHub
+.env
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Datos sensibles
+data/
+*.json
+config_tokens.json
+mis_apis.json
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+streamlit_log.txt
+
+# IDEs
+.vscode/
+.idea/

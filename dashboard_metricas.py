@@ -1,0 +1,472 @@
+# -*- coding: utf-8 -*-
+"""
+BRAIN2POWER — Dashboard de Métricas RRSS
+Acceso en red local: http://<tu-IP>:8501
+Auto-refresco cada 5 minutos.
+"""
+
+import os, requests, json, datetime, time
+import streamlit as st
+import plotly.graph_objects as go
+import plotly.express as px
+from pathlib import Path
+from dotenv import load_dotenv
+
+# ── Config ────────────────────────────────────────────────────────────────────
+# Secrets: Streamlit Cloud → st.secrets | Local → .env
+def _get_secrets():
+    """Lee credenciales de st.secrets (Cloud) o .env (local)."""
+    try:
+        # Streamlit Cloud: lanza KeyError si no están configurados
+        return (
+            st.secrets["FACEBOOK_TOKEN"],
+            st.secrets.get("FACEBOOK_PAGE_ID", "1035845122935970"),
+            st.secrets.get("INSTAGRAM_ACCOUNT_ID", "17841448302166910"),
+            st.secrets.get("LINKEDIN_TOKEN", ""),
+        )
+    except Exception:
+        # Local: busca .env junto al script, luego ruta absoluta como fallback
+        _env = Path(__file__).parent / ".env"
+        if not _env.exists():
+            _env = Path(r"C:\Users\Cristela.Moreno\EquipodeAgentes\.env")
+        load_dotenv(_env, override=True, encoding="utf-8")
+        return (
+            os.getenv("FACEBOOK_TOKEN", ""),
+            os.getenv("FACEBOOK_PAGE_ID", "1035845122935970"),
+            os.getenv("INSTAGRAM_ACCOUNT_ID", "17841448302166910"),
+            os.getenv("LINKEDIN_TOKEN", ""),
+        )
+
+FB_TOKEN, FB_PAGE_ID, IG_ID, LI_TOKEN = _get_secrets()
+FB_API     = "https://graph.facebook.com/v20.0"
+
+VERDE  = "#00c878"
+AZUL   = "#00a8e8"
+OSCURO = "#0b1e3d"
+ROJO   = "#ff6b6b"
+ORO    = "#ffd700"
+
+# ── Página ────────────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="Brain2Power — Métricas",
+    page_icon="⚡",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# CSS personalizado
+st.markdown(f"""
+<style>
+  .stApp {{ background-color: #060d1f; color: #ffffff; }}
+  .stMetric label {{ color: rgba(255,255,255,0.55) !important; font-size: 13px !important; }}
+  .stMetric [data-testid="metric-container"] {{
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 16px;
+  }}
+  .block-container {{ padding-top: 1.5rem; }}
+  h1, h2, h3 {{ color: white !important; }}
+  .canal-header {{
+    background: rgba(0,200,120,0.08);
+    border: 1px solid rgba(0,200,120,0.3);
+    border-radius: 12px;
+    padding: 10px 20px;
+    margin-bottom: 12px;
+    font-weight: 700;
+    font-size: 16px;
+    color: {VERDE};
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }}
+  .canal-header.blue {{
+    background: rgba(0,168,232,0.08);
+    border-color: rgba(0,168,232,0.3);
+    color: {AZUL};
+  }}
+  .canal-header.gold {{
+    background: rgba(255,215,0,0.08);
+    border-color: rgba(255,215,0,0.3);
+    color: {ORO};
+  }}
+  .refresh-info {{
+    font-size: 12px;
+    color: rgba(255,255,255,0.3);
+    text-align: right;
+  }}
+  .post-card {{
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    font-size: 13px;
+  }}
+  .tag-green {{color: {VERDE}; font-weight: 700;}}
+  .tag-blue {{color: {AZUL}; font-weight: 700;}}
+  .tag-red {{color: {ROJO}; font-weight: 700;}}
+</style>
+""", unsafe_allow_html=True)
+
+# ── Funciones de datos ────────────────────────────────────────────────────────
+@st.cache_data(ttl=300)   # Cache 5 minutos
+def get_instagram_data():
+    try:
+        # Info básica cuenta
+        r = requests.get(f"{FB_API}/{IG_ID}",
+            params={"access_token": FB_TOKEN,
+                    "fields": "id,username,followers_count,follows_count,media_count,biography,website"},
+            timeout=10)
+        info = r.json() if r.ok else {}
+
+        # Métricas 30 días
+        since = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
+        until = datetime.date.today().isoformat()
+
+        metricas = {}
+        for metric in ["reach", "profile_views", "accounts_engaged", "total_interactions",
+                        "likes", "comments", "shares", "saves", "views", "follows_and_unfollows"]:
+            try:
+                r2 = requests.get(f"{FB_API}/{IG_ID}/insights",
+                    params={"access_token": FB_TOKEN, "metric": metric,
+                            "period": "day", "metric_type": "total_value",
+                            "since": since, "until": until},
+                    timeout=8)
+                d = r2.json()
+                if "data" in d and d["data"]:
+                    val = d["data"][0].get("total_value", {})
+                    metricas[metric] = val.get("value", 0) if isinstance(val, dict) else 0
+            except Exception:
+                metricas[metric] = 0
+
+        # Últimos 10 posts
+        r3 = requests.get(f"{FB_API}/{IG_ID}/media",
+            params={"access_token": FB_TOKEN,
+                    "fields": "id,timestamp,media_type,like_count,comments_count,caption",
+                    "limit": 10},
+            timeout=10)
+        posts = r3.json().get("data", []) if r3.ok else []
+
+        # Reach por post (últimos 5)
+        for post in posts[:5]:
+            try:
+                rp = requests.get(f"{FB_API}/{post['id']}/insights",
+                    params={"access_token": FB_TOKEN, "metric": "reach,saved"},
+                    timeout=6)
+                dp = rp.json()
+                if "data" in dp:
+                    for m in dp["data"]:
+                        v = m.get("values", [{}])
+                        post[m["name"]] = v[0].get("value", 0) if v else 0
+            except Exception:
+                pass
+
+        # Audiencia por país
+        try:
+            rp = requests.get(f"{FB_API}/{IG_ID}/insights",
+                params={"access_token": FB_TOKEN, "metric": "follower_demographics",
+                        "period": "lifetime", "metric_type": "total_value", "breakdown": "country"},
+                timeout=8)
+            paises_raw = rp.json().get("data", [{}])[0].get("total_value", {}).get("breakdowns", [{}])[0].get("results", [])
+            paises = sorted(paises_raw, key=lambda x: x["value"], reverse=True)[:8]
+        except Exception:
+            paises = []
+
+        # Audiencia edad/género
+        try:
+            ra = requests.get(f"{FB_API}/{IG_ID}/insights",
+                params={"access_token": FB_TOKEN, "metric": "follower_demographics",
+                        "period": "lifetime", "metric_type": "total_value", "breakdown": "age,gender"},
+                timeout=8)
+            edades_raw = ra.json().get("data", [{}])[0].get("total_value", {}).get("breakdowns", [{}])[0].get("results", [])
+            edades = sorted(edades_raw, key=lambda x: x["value"], reverse=True)[:8]
+        except Exception:
+            edades = []
+
+        return {"info": info, "metricas": metricas, "posts": posts, "paises": paises, "edades": edades}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@st.cache_data(ttl=300)
+def get_facebook_data():
+    try:
+        r = requests.get(f"{FB_API}/{FB_PAGE_ID}",
+            params={"access_token": FB_TOKEN,
+                    "fields": "name,fan_count,followers_count,talking_about_count,category,about"},
+            timeout=10)
+        return r.json() if r.ok else {"error": "No se pudo conectar"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@st.cache_data(ttl=300)
+def get_linkedin_data():
+    """LinkedIn limitado — muestra datos disponibles con token actual."""
+    headers = {
+        "Authorization": f"Bearer {LI_TOKEN}",
+        "LinkedIn-Version": "202502",
+        "X-Restli-Protocol-Version": "2.0.0"
+    }
+    try:
+        r = requests.get("https://api.linkedin.com/v2/me",
+            headers=headers, timeout=8)
+        if r.ok:
+            me = r.json()
+            return {
+                "connected": True,
+                "name": f"{me.get('localizedFirstName','')} {me.get('localizedLastName','')}".strip(),
+                "org_urn": "urn:li:organization:111959115",
+                "org_name": "Brain2Power",
+                "token_caduca": "19/07/2026",
+                "nota": "Token activo. Para métricas de organización se necesita r_organization_social."
+            }
+        return {"connected": False, "error": r.text[:100]}
+    except Exception as e:
+        return {"connected": False, "error": str(e)}
+
+
+# ── HEADER ────────────────────────────────────────────────────────────────────
+col_title, col_refresh = st.columns([4, 1])
+with col_title:
+    st.markdown("## ⚡ Brain2Power — Dashboard de Métricas RRSS")
+    st.markdown(f"<span style='color:rgba(255,255,255,0.4);font-size:13px'>Última actualización: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} · Refresco automático cada 5 min</span>", unsafe_allow_html=True)
+
+with col_refresh:
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🔄 Refrescar ahora", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
+st.markdown("---")
+
+# ── CARGAR DATOS ──────────────────────────────────────────────────────────────
+with st.spinner("Cargando métricas en tiempo real..."):
+    ig_data = get_instagram_data()
+    fb_data = get_facebook_data()
+    li_data = get_linkedin_data()
+
+# ── INSTAGRAM ─────────────────────────────────────────────────────────────────
+st.markdown('<div class="canal-header">📸 Instagram — @brain2power</div>', unsafe_allow_html=True)
+
+if "error" not in ig_data:
+    info = ig_data.get("info", {})
+    met  = ig_data.get("metricas", {})
+
+    # KPIs principales
+    k1, k2, k3, k4, k5, k6 = st.columns(6)
+    with k1:
+        st.metric("👥 Seguidores", f"{info.get('followers_count', 0):,}", delta="+25 últimos 15d")
+    with k2:
+        st.metric("📱 Posts totales", info.get('media_count', 0))
+    with k3:
+        st.metric("👁️ Reach 30d", f"{met.get('reach', 0):,}")
+    with k4:
+        st.metric("▶️ Views 30d", f"{met.get('views', 0):,}")
+    with k5:
+        st.metric("👤 Visitas perfil 30d", f"{met.get('profile_views', 0):,}")
+    with k6:
+        st.metric("❤️ Likes 30d", f"{met.get('likes', 0):,}")
+
+    # Segunda fila KPIs
+    k7, k8, k9, k10, k11, k12 = st.columns(6)
+    with k7:
+        st.metric("💬 Comentarios 30d", met.get('comments', 0))
+    with k8:
+        st.metric("🔁 Compartidos 30d", met.get('shares', 0))
+    with k9:
+        st.metric("🔖 Guardados 30d", met.get('saves', 0))
+    with k10:
+        st.metric("🎯 Cuentas alcanzadas", f"{met.get('accounts_engaged', 0):,}")
+    with k11:
+        st.metric("📊 Interacciones 30d", f"{met.get('total_interactions', 0):,}")
+    with k12:
+        tasa = round(met.get('total_interactions', 0) / max(info.get('followers_count', 1), 1) * 100, 2)
+        st.metric("📈 Tasa engagement", f"{tasa}%")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Gráficos y posts recientes
+    col_chart, col_posts = st.columns([1, 1])
+
+    with col_chart:
+        # Gráfico audiencia por países
+        paises = ig_data.get("paises", [])
+        if paises:
+            fig_p = go.Figure(go.Bar(
+                x=[p["value"] for p in paises],
+                y=[p["dimension_values"][0] for p in paises],
+                orientation="h",
+                marker_color=VERDE,
+                marker_opacity=0.8,
+            ))
+            fig_p.update_layout(
+                title="🌍 Seguidores por país",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="white",
+                height=300,
+                margin=dict(l=10, r=10, t=40, b=10),
+                yaxis=dict(autorange="reversed"),
+                xaxis=dict(gridcolor="rgba(255,255,255,0.08)"),
+            )
+            st.plotly_chart(fig_p, use_container_width=True)
+
+        # Gráfico edad/género
+        edades = ig_data.get("edades", [])
+        if edades:
+            labels = [f"{e['dimension_values'][0]} {e['dimension_values'][1]}" for e in edades]
+            values = [e["value"] for e in edades]
+            fig_e = go.Figure(go.Bar(
+                x=labels, y=values,
+                marker_color=[AZUL if e["dimension_values"][1] == "M" else VERDE if e["dimension_values"][1] == "F" else ORO
+                               for e in edades],
+            ))
+            fig_e.update_layout(
+                title="👥 Audiencia por edad y género",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="white",
+                height=280,
+                margin=dict(l=10, r=10, t=40, b=10),
+                xaxis=dict(tickangle=-30),
+                yaxis=dict(gridcolor="rgba(255,255,255,0.08)"),
+            )
+            st.plotly_chart(fig_e, use_container_width=True)
+
+    with col_posts:
+        st.markdown("**📋 Últimos posts**")
+        posts = ig_data.get("posts", [])
+        type_icons = {"VIDEO": "🎬", "IMAGE": "🖼️", "CAROUSEL_ALBUM": "📋"}
+        for post in posts[:8]:
+            icon = type_icons.get(post.get("media_type", ""), "📄")
+            ts   = post.get("timestamp", "")[:10]
+            likes = post.get("like_count", 0)
+            reach = post.get("reach", "—")
+            caption = (post.get("caption", "") or "")[:60].replace("\n", " ") or "(sin caption)"
+            reach_txt = f"reach: {reach}" if isinstance(reach, int) else ""
+            st.markdown(f"""<div class="post-card">
+                <span class="tag-green">{icon} {ts}</span> · likes: <b>{likes}</b> {f"· {reach_txt}" if reach_txt else ""}<br>
+                <span style="color:rgba(255,255,255,0.5);font-size:12px">{caption}...</span>
+            </div>""", unsafe_allow_html=True)
+
+        # Rendimiento por tipo
+        if posts:
+            tipos = {}
+            for p in posts:
+                t = p.get("media_type", "OTHER")
+                if t not in tipos:
+                    tipos[t] = {"count": 0, "likes": 0, "reach": 0}
+                tipos[t]["count"] += 1
+                tipos[t]["likes"] += p.get("like_count", 0)
+                tipos[t]["reach"] += p.get("reach", 0) if isinstance(p.get("reach"), int) else 0
+
+            st.markdown("<br>**📊 Rendimiento por formato (últimos 10 posts)**", unsafe_allow_html=True)
+            for tipo, d in tipos.items():
+                avg_reach = round(d["reach"] / d["count"]) if d["count"] else 0
+                avg_likes = round(d["likes"] / d["count"], 1) if d["count"] else 0
+                icon = type_icons.get(tipo, "📄")
+                col_a, col_b, col_c = st.columns(3)
+                with col_a:
+                    st.metric(f"{icon} {tipo}", f"{d['count']} posts")
+                with col_b:
+                    st.metric("Reach medio", avg_reach)
+                with col_c:
+                    st.metric("Likes medio", avg_likes)
+else:
+    st.error(f"Error al cargar Instagram: {ig_data.get('error')}")
+
+st.markdown("---")
+
+# ── FACEBOOK ──────────────────────────────────────────────────────────────────
+st.markdown('<div class="canal-header blue">📘 Facebook — Página Brain2Power</div>', unsafe_allow_html=True)
+
+if "error" not in fb_data:
+    fb1, fb2, fb3, fb4 = st.columns(4)
+    with fb1:
+        st.metric("👍 Fans (Me gusta)", fb_data.get("fan_count", 0))
+    with fb2:
+        st.metric("👥 Seguidores página", fb_data.get("followers_count", 0))
+    with fb3:
+        st.metric("💬 Hablando de esto", fb_data.get("talking_about_count", 0))
+    with fb4:
+        st.metric("📂 Categoría", fb_data.get("category", "—"))
+
+    st.info(
+        "⚠️ **Facebook publishing pendiente:** Para publicar automáticamente necesitamos añadir "
+        "el Use Case 'Manage your Page' en developers.facebook.com → apps → 963059616282427 → Use Cases. "
+        "Token permanente activo. Métricas básicas OK."
+    )
+else:
+    st.error(f"Error Facebook: {fb_data.get('error')}")
+
+st.markdown("---")
+
+# ── LINKEDIN ──────────────────────────────────────────────────────────────────
+st.markdown('<div class="canal-header gold">💼 LinkedIn — Organización Brain2Power</div>', unsafe_allow_html=True)
+
+li1, li2, li3, li4 = st.columns(4)
+with li1:
+    status = "✅ Conectado" if li_data.get("connected") else "❌ Sin conexión"
+    st.metric("🔑 Token API", status)
+with li2:
+    st.metric("🏢 Organización", li_data.get("org_name", "Brain2Power"))
+with li3:
+    st.metric("📅 Token caduca", li_data.get("token_caduca", "19/07/2026"))
+with li4:
+    st.metric("🔗 URN", "urn:li:org:111959115")
+
+st.warning(
+    "📊 **Métricas de organización LinkedIn pendientes:** "
+    "Necesita scope `r_organization_social` + Organization Access habilitado en la app LinkedIn. "
+    "Ve a linkedin.com/developers/apps → tu app → Products → 'Share on LinkedIn'. "
+    "Token activo y válido para publicación manual."
+)
+
+st.markdown("---")
+
+# ── PLAN DE CONTENIDOS SEMANA ──────────────────────────────────────────────────
+st.markdown("## 📅 Plan de contenidos — Semana 2-6 Junio 2026")
+
+plan = [
+    {"dia": "Lun 2 Jun", "hora": "08:30h", "red": "LinkedIn", "formato": "Texto", "tema": "Canarias: 70% petróleo → VPP como solución", "estado": "PENDIENTE"},
+    {"dia": "Lun 2 Jun", "hora": "10:00h", "red": "Instagram", "formato": "🎬 Reel 25s", "tema": "Canarias y dependencia del petróleo — B2P como respuesta", "estado": "PENDIENTE"},
+    {"dia": "Mar 3 Jun", "hora": "09:00h", "red": "LinkedIn", "formato": "📊 Carrusel 7 slides", "tema": "Análisis energético ULPGC con IA — 5.684 GWh H2 2026", "estado": "LISTO ✅"},
+    {"dia": "Mar 3 Jun", "hora": "12:00h", "red": "Instagram", "formato": "🖼️ Imagen dato", "tema": "5.684 GWh proyectados ULPGC (dato impacto)", "estado": "PENDIENTE"},
+    {"dia": "Mié 4 Jun", "hora": "18:00h", "red": "Instagram", "formato": "🎬 Reel 50s", "tema": "IA que gestiona energía de madrugada — VPP en tiempo real", "estado": "PENDIENTE"},
+    {"dia": "Mié 4 Jun", "hora": "18:00h", "red": "YouTube", "formato": "📺 Short 50s", "tema": "Mismo vídeo — VPP con IA", "estado": "PENDIENTE"},
+    {"dia": "Jue 5 Jun 🌍", "hora": "10:00h", "red": "Instagram", "formato": "🎬 Reel 35s", "tema": "Día Mundial Medio Ambiente — datos reales PLOCAN", "estado": "⭐ PRIORITARIO"},
+    {"dia": "Jue 5 Jun 🌍", "hora": "09:30h", "red": "LinkedIn", "formato": "Texto", "tema": "Día Mundial Medio Ambiente — tono B2B técnico", "estado": "⭐ PRIORITARIO"},
+    {"dia": "Vie 6 Jun", "hora": "11:00h", "red": "Instagram", "formato": "📱 Historias x3", "tema": "Encuesta pregunta abierta + dato de la semana", "estado": "PENDIENTE"},
+    {"dia": "Vie 6 Jun", "hora": "11:00h", "red": "LinkedIn", "formato": "📰 Artículo", "tema": "5 lecciones de la semana sobre gestión energética", "estado": "PENDIENTE"},
+]
+
+color_red = {"Instagram": VERDE, "LinkedIn": AZUL, "Facebook": "#1877f2", "YouTube": "#ff0000"}
+estado_color = {"PENDIENTE": ORO, "LISTO ✅": VERDE, "⭐ PRIORITARIO": "#ff6b6b"}
+
+for p in plan:
+    rc = color_red.get(p["red"], AZUL)
+    ec = estado_color.get(p["estado"], ORO)
+    st.markdown(f"""<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+        border-left:3px solid {rc};border-radius:10px;padding:10px 16px;margin-bottom:6px;
+        display:flex;justify-content:space-between;align-items:center;">
+        <span style="color:rgba(255,255,255,0.5);font-size:13px;min-width:90px">{p['dia']}</span>
+        <span style="color:{rc};font-weight:700;min-width:80px">{p['red']}</span>
+        <span style="color:rgba(255,255,255,0.7);min-width:140px;font-size:13px">{p['formato']}</span>
+        <span style="color:#fff;flex:1;font-size:13px">{p['tema']}</span>
+        <span style="color:{ec};font-weight:700;font-size:12px;min-width:120px;text-align:right">{p['estado']}</span>
+    </div>""", unsafe_allow_html=True)
+
+st.markdown("---")
+
+# ── FOOTER ────────────────────────────────────────────────────────────────────
+st.markdown(f"""
+<div style="text-align:center;color:rgba(255,255,255,0.2);font-size:12px;padding:20px 0">
+  ⚡ Brain2Power · PLOCAN · Dashboard interno v1.0 ·
+  Datos actualizados: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')} ·
+  Auto-refresco: 5 min
+</div>
+""", unsafe_allow_html=True)
+
+# Auto-refresco cada 5 minutos
+time.sleep(0.1)

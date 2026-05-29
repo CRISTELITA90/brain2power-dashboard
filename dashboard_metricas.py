@@ -202,28 +202,31 @@ def get_facebook_data():
 
 @st.cache_data(ttl=300)
 def get_linkedin_data():
-    """LinkedIn limitado — muestra datos disponibles con token actual."""
-    headers = {
-        "Authorization": f"Bearer {LI_TOKEN}",
-        "LinkedIn-Version": "202502",
-        "X-Restli-Protocol-Version": "2.0.0"
+    """LinkedIn — perfil, estado del token y capacidades disponibles."""
+    headers = {"Authorization": f"Bearer {LI_TOKEN}"}
+    result = {
+        "connected": False,
+        "name": "—", "email": "—",
+        "org_name": "Brain2Power", "org_urn": "urn:li:organization:111959115",
+        "token_caduca": "29/07/2026",
+        "scopes": ["openid", "profile", "email", "w_member_social"],
+        "puede_publicar": True,
+        "metricas_org": False,
     }
     try:
-        r = requests.get("https://api.linkedin.com/v2/me",
-            headers=headers, timeout=8)
+        # userinfo funciona con scope openid+profile+email
+        r = requests.get("https://api.linkedin.com/v2/userinfo",
+                         headers=headers, timeout=8)
         if r.ok:
-            me = r.json()
-            return {
-                "connected": True,
-                "name": f"{me.get('localizedFirstName','')} {me.get('localizedLastName','')}".strip(),
-                "org_urn": "urn:li:organization:111959115",
-                "org_name": "Brain2Power",
-                "token_caduca": "19/07/2026",
-                "nota": "Token activo. Para métricas de organización se necesita r_organization_social."
-            }
-        return {"connected": False, "error": r.text[:100]}
+            d = r.json()
+            result["connected"] = True
+            result["name"]  = d.get("name", "Brain2 Power")
+            result["email"] = d.get("email", "cristela.moreno@plocan.eu")
+        else:
+            result["error"] = r.text[:120]
     except Exception as e:
-        return {"connected": False, "error": str(e)}
+        result["error"] = str(e)
+    return result
 
 
 # ── HEADER ────────────────────────────────────────────────────────────────────
@@ -410,18 +413,38 @@ with li1:
     status = "✅ Conectado" if li_data.get("connected") else "❌ Sin conexión"
     st.metric("🔑 Token API", status)
 with li2:
-    st.metric("🏢 Organización", li_data.get("org_name", "Brain2Power"))
+    st.metric("👤 Usuario", li_data.get("name", "Brain2 Power"))
 with li3:
-    st.metric("📅 Token caduca", li_data.get("token_caduca", "19/07/2026"))
+    st.metric("📅 Caduca", li_data.get("token_caduca", "29/07/2026"))
 with li4:
-    st.metric("🔗 URN", "urn:li:org:111959115")
+    publica = "✅ Activo" if li_data.get("puede_publicar") else "❌ No disponible"
+    st.metric("📤 Publicación", publica)
 
-st.warning(
-    "📊 **Métricas de organización LinkedIn pendientes:** "
-    "Necesita scope `r_organization_social` + Organization Access habilitado en la app LinkedIn. "
-    "Ve a linkedin.com/developers/apps → tu app → Products → 'Share on LinkedIn'. "
-    "Token activo y válido para publicación manual."
-)
+# Capacidades disponibles vs pendientes
+cap_col, pend_col = st.columns(2)
+with cap_col:
+    st.markdown(f"""
+    <div style="background:rgba(0,200,120,0.07);border:1px solid rgba(0,200,120,0.25);
+        border-radius:10px;padding:14px 18px;">
+    <div style="color:{VERDE};font-weight:700;margin-bottom:8px;font-size:14px">✅ DISPONIBLE AHORA</div>
+    <div style="font-size:13px;line-height:1.8;color:rgba(255,255,255,0.85)">
+    • Publicar posts en página de empresa<br>
+    • Autenticación y perfil verificado<br>
+    • Email: {li_data.get('email','cristela.moreno@plocan.eu')}<br>
+    • Scopes: <code style="color:{AZUL}">openid · profile · email · w_member_social</code>
+    </div></div>""", unsafe_allow_html=True)
+
+with pend_col:
+    st.markdown(f"""
+    <div style="background:rgba(255,215,0,0.05);border:1px solid rgba(255,215,0,0.2);
+        border-radius:10px;padding:14px 18px;">
+    <div style="color:{ORO};font-weight:700;margin-bottom:8px;font-size:14px">ℹ️ REQUIERE APROBACIÓN LINKEDIN</div>
+    <div style="font-size:13px;line-height:1.8;color:rgba(255,255,255,0.65)">
+    • Métricas de organización (seguidores, impresiones)<br>
+    • Scope <code>r_organization_social</code> — solo con Marketing Developer Platform<br>
+    • Solicitud en: <code>linkedin.com/developers/apps</code><br>
+    • Proceso de revisión manual por LinkedIn (1-4 semanas)
+    </div></div>""", unsafe_allow_html=True)
 
 st.markdown("---")
 

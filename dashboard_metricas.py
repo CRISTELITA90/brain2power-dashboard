@@ -444,15 +444,33 @@ st.markdown('<div class="canal-header gold">💼 LinkedIn — Organización Brai
 
 li1, li2, li3, li4 = st.columns(4)
 with li1:
-    status = "✅ Conectado" if li_data.get("connected") else "❌ Sin conexión"
+    if li_data.get("connected"):
+        status = "✅ Conectado"
+    elif LI_TOKEN and len(LI_TOKEN) > 20:
+        status = "⚠️ Token en secrets"
+    else:
+        status = "❌ Secret vacío"
     st.metric("🔑 Token API", status)
 with li2:
-    st.metric("👤 Usuario", li_data.get("name", "Brain2 Power"))
+    nombre = li_data.get("name", "Brain2 Power") if li_data.get("connected") else "Brain2 Power"
+    st.metric("👤 Cuenta", nombre)
 with li3:
-    st.metric("📅 Caduca", li_data.get("token_caduca", "29/07/2026"))
+    st.metric("📅 Caduca", li_data.get("token_caduca", "03/08/2026"))
 with li4:
     publica = "✅ Activo" if li_data.get("puede_publicar") else "❌ No disponible"
     st.metric("📤 Publicación", publica)
+
+if not li_data.get("connected") and LI_TOKEN and len(LI_TOKEN) > 20:
+    st.warning(
+        "⚠️ **LinkedIn:** Token presente en secrets pero rechazado por la API. "
+        "Actualiza el secret LINKEDIN_TOKEN con el token renovado el 04/06/2026 "
+        "(caduca 03/08/2026). Publicación de posts activa mediante API local."
+    )
+elif not LI_TOKEN or len(LI_TOKEN) < 20:
+    st.error(
+        "❌ **LinkedIn:** Secret LINKEDIN_TOKEN no configurado en Streamlit Cloud. "
+        "Ve a Settings → Secrets y añade el token completo."
+    )
 
 # Capacidades disponibles vs pendientes
 cap_col, pend_col = st.columns(2)

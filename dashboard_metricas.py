@@ -43,6 +43,9 @@ def _get_secrets():
 
 FB_TOKEN, FB_PAGE_ID, IG_ID, LI_TOKEN, YT_KEY, YT_CHANNEL, X_TOKEN = _get_secrets()
 X_USERNAME = "Brain2Power"
+# Si no hay token en secrets, usar el token configurado localmente
+if not X_TOKEN or len(X_TOKEN) < 20:
+    X_TOKEN = "AAAAAAAAAAAAAAAAAAAAAAIw9QEAAAAAzgh4wLD4kt5qFZJ15KXP9UtFvcU=RRLPmZCKdzR7Al9OlYatsSMsKW7tuBqtqMF48t8Z1YBj18grcD"
 FB_API     = "https://graph.facebook.com/v21.0"
 
 VERDE  = "#00c878"
@@ -257,13 +260,17 @@ def get_x_data():
             headers=hdrs, timeout=10)
 
         if r.status_code == 401:
-            result["error"] = "Token inválido o expirado (401)"
+            result["error"] = "token_invalido"
+            return result
+        if r.status_code == 402:
+            result["error"] = "creditos_agotados"
+            result["token_ok"] = True  # token válido, solo sin créditos
             return result
         if r.status_code == 403:
-            result["error"] = "Plan gratuito X no permite este endpoint (403)"
+            result["error"] = "plan_insuficiente"
             return result
         if not r.ok:
-            result["error"] = f"HTTP {r.status_code}: {r.text[:100]}"
+            result["error"] = f"HTTP {r.status_code}"
             return result
 
         user = r.json().get("data", {})
@@ -717,6 +724,24 @@ if x_data.get("connected"):
             )
             st.plotly_chart(fig_x, use_container_width=True)
 
+elif x_data.get("error") == "creditos_agotados":
+    st.markdown(f"""
+    <div style="background:rgba(255,165,0,0.06);border:1px solid rgba(255,165,0,0.25);
+        border-radius:10px;padding:16px 20px;display:flex;gap:16px;align-items:flex-start">
+    <div style="font-size:28px">🟠</div>
+    <div>
+      <div style="color:#ffa500;font-weight:700;font-size:14px;margin-bottom:6px">
+        X API — Token ✅ configurado · Créditos agotados este mes</div>
+      <div style="font-size:13px;line-height:1.8;color:rgba(255,255,255,0.75)">
+        El Bearer Token es válido y está guardado. La cuota mensual de la cuenta
+        <b>@Brain2Power</b> se ha consumido.<br>
+        Los créditos se <b>renuevan automáticamente el 1 de julio</b> — las métricas
+        aparecerán en el dashboard sin ninguna acción adicional.<br><br>
+        Para tener créditos ilimitados: actualizar a plan <b>Basic ($100/mes)</b>
+        en <code>developer.x.com</code>.
+      </div>
+    </div>
+    </div>""", unsafe_allow_html=True)
 elif not x_data.get("token_configurado"):
     st.markdown(f"""
     <div style="background:rgba(231,233,234,0.05);border:1px solid rgba(231,233,234,0.2);
@@ -724,14 +749,9 @@ elif not x_data.get("token_configurado"):
     <div style="color:{NEGRO_X};font-weight:700;font-size:15px;margin-bottom:10px">
         🐦 X — Configuración pendiente</div>
     <div style="font-size:13px;line-height:2;color:rgba(255,255,255,0.7)">
-    <b>Pasos para activar:</b><br>
     1. Ir a <code>developer.x.com</code> → crear app gratuita<br>
     2. Copiar el <b>Bearer Token</b><br>
-    3. Añadir en Streamlit Secrets: <code>X_BEARER_TOKEN = "tu_token"</code><br>
-    4. El dashboard se actualiza automáticamente
-    </div>
-    <div style="margin-top:10px;font-size:12px;color:rgba(255,255,255,0.35)">
-    Plan gratuito X: 500K lecturas/mes · Perfil + tweets + métricas disponibles
+    3. Añadir en Streamlit Secrets: <code>X_BEARER_TOKEN = "tu_token"</code>
     </div></div>""", unsafe_allow_html=True)
 elif x_data.get("error"):
     st.warning(f"⚠️ X API: {x_data['error']}")

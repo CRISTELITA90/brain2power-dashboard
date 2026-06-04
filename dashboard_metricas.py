@@ -38,7 +38,7 @@ def _get_secrets():
         )
 
 FB_TOKEN, FB_PAGE_ID, IG_ID, LI_TOKEN = _get_secrets()
-FB_API     = "https://graph.facebook.com/v20.0"
+FB_API     = "https://graph.facebook.com/v21.0"
 
 VERDE  = "#00c878"
 AZUL   = "#00a8e8"
@@ -109,17 +109,34 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── Funciones de datos ────────────────────────────────────────────────────────
+def _cargar_cache_metricas_api() -> dict:
+    """Lee el JSON más reciente de metricas_api_*.json generado por agente_analisis_insights."""
+    try:
+        jsons = sorted(
+            list(Path(__file__).parent.glob("metricas_api_*.json")),
+            key=lambda p: p.stat().st_mtime, reverse=True
+        )
+        if jsons:
+            return json.load(open(jsons[0], encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+_API_CACHE = _cargar_cache_metricas_api()
+
+
 @st.cache_data(ttl=300)   # Cache 5 minutos
 def get_instagram_data():
     try:
-        # Info básica cuenta
+        # Info básica cuenta (siempre funciona con instagram_basic)
         r = requests.get(f"{FB_API}/{IG_ID}",
             params={"access_token": FB_TOKEN,
                     "fields": "id,username,followers_count,follows_count,media_count,biography,website"},
             timeout=10)
         info = r.json() if r.ok else {}
 
-        # Métricas 30 días
+        # Métricas 30 días (requiere instagram_manage_insights)
+        # En Development mode devuelve 0 → se completa con caché local del agente
         since = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
         until = datetime.date.today().isoformat()
 
@@ -135,9 +152,25 @@ def get_instagram_data():
                 d = r2.json()
                 if "data" in d and d["data"]:
                     val = d["data"][0].get("total_value", {})
-                    metricas[metric] = val.get("value", 0) if isinstance(val, dict) else 0
+                    metricas[metric] = val.get("value", 0) if isinstance(val, dict) else (val if isinstance(val, (int, float)) else 0)
             except Exception:
                 metricas[metric] = 0
+
+        # Fallback: si todos son 0 (Dev mode), usar datos del caché local del agente
+        ig_cache = _API_CACHE.get("instagram", {})
+        if sum(v for v in metricas.values() if isinstance(v, (int, float))) == 0 and ig_cache:
+            metricas["reach"]              = ig_cache.get("alcance_28d") or ig_cache.get("alcance", 0)
+            metricas["total_interactions"] = ig_cache.get("interacciones_28d", 0)
+            metricas["likes"]              = ig_cache.get("likes_28d", 0)
+            metricas["comments"]           = ig_cache.get("comentarios_28d", 0)
+            metricas["shares"]             = ig_cache.get("compartidos_28d", 0)
+            metricas["profile_views"]      = ig_cache.get("visitas_perfil_28d", 0)
+            metricas["_source"]            = "cache_local_agente"
+        # Enriquecer info básica con caché si la API no devuelve datos
+        if not info.get("followers_count") and ig_cache.get("seguidores"):
+            info["followers_count"] = ig_cache["seguidores"]
+        if not info.get("media_count") and ig_cache.get("media_count"):
+            info["media_count"] = ig_cache["media_count"]
 
         # Últimos 10 posts
         r3 = requests.get(f"{FB_API}/{IG_ID}/media",
@@ -208,8 +241,8 @@ def get_linkedin_data():
         "connected": False,
         "name": "—", "email": "—",
         "org_name": "Brain2Power", "org_urn": "urn:li:organization:111959115",
-        "token_caduca": "29/07/2026",
-        "scopes": ["openid", "profile", "email", "w_member_social"],
+        "token_caduca": "03/08/2026",
+        "scopes": ["openid", "profile", "email", "w_member_social", "r_events", "rw_events"],
         "puede_publicar": True,
         "metricas_org": False,
     }
@@ -396,9 +429,10 @@ if "error" not in fb_data:
         st.metric("📂 Categoría", fb_data.get("category", "—"))
 
     st.info(
-        "⚠️ **Facebook publishing pendiente:** Para publicar automáticamente necesitamos añadir "
-        "el Use Case 'Manage your Page' en developers.facebook.com → apps → 963059616282427 → Use Cases. "
-        "Token permanente activo. Métricas básicas OK."
+        "⏳ **App Meta en verificación:** Token permanente activo (renovado 29/05/2026). "
+        "Métricas básicas de página OK. Insights detallados (reach, impressions, posts engagement) "
+        "disponibles cuando Meta apruebe la verificación de empresa → app pasará a modo Live. "
+        "Mientras tanto, el agente usa datos del scraper como fallback automático."
     )
 else:
     st.error(f"Error Facebook: {fb_data.get('error')}")
@@ -449,19 +483,19 @@ with pend_col:
 st.markdown("---")
 
 # ── PLAN DE CONTENIDOS SEMANA ──────────────────────────────────────────────────
-st.markdown("## 📅 Plan de contenidos — Semana 2-6 Junio 2026")
+st.markdown("## 📅 Plan de contenidos — Semana 4-8 Junio 2026")
 
 plan = [
-    {"dia": "Lun 2 Jun", "hora": "08:30h", "red": "LinkedIn", "formato": "Texto", "tema": "Canarias: 70% petróleo → VPP como solución", "estado": "PENDIENTE"},
-    {"dia": "Lun 2 Jun", "hora": "10:00h", "red": "Instagram", "formato": "🎬 Reel 25s", "tema": "Canarias y dependencia del petróleo — B2P como respuesta", "estado": "PENDIENTE"},
-    {"dia": "Mar 3 Jun", "hora": "09:00h", "red": "LinkedIn", "formato": "📊 Carrusel 7 slides", "tema": "Análisis energético ULPGC con IA — 5.684 GWh H2 2026", "estado": "LISTO ✅"},
-    {"dia": "Mar 3 Jun", "hora": "12:00h", "red": "Instagram", "formato": "🖼️ Imagen dato", "tema": "5.684 GWh proyectados ULPGC (dato impacto)", "estado": "PENDIENTE"},
-    {"dia": "Mié 4 Jun", "hora": "18:00h", "red": "Instagram", "formato": "🎬 Reel 50s", "tema": "IA que gestiona energía de madrugada — VPP en tiempo real", "estado": "PENDIENTE"},
-    {"dia": "Mié 4 Jun", "hora": "18:00h", "red": "YouTube", "formato": "📺 Short 50s", "tema": "Mismo vídeo — VPP con IA", "estado": "PENDIENTE"},
-    {"dia": "Jue 5 Jun 🌍", "hora": "10:00h", "red": "Instagram", "formato": "🎬 Reel 35s", "tema": "Día Mundial Medio Ambiente — datos reales PLOCAN", "estado": "⭐ PRIORITARIO"},
-    {"dia": "Jue 5 Jun 🌍", "hora": "09:30h", "red": "LinkedIn", "formato": "Texto", "tema": "Día Mundial Medio Ambiente — tono B2B técnico", "estado": "⭐ PRIORITARIO"},
-    {"dia": "Vie 6 Jun", "hora": "11:00h", "red": "Instagram", "formato": "📱 Historias x3", "tema": "Encuesta pregunta abierta + dato de la semana", "estado": "PENDIENTE"},
-    {"dia": "Vie 6 Jun", "hora": "11:00h", "red": "LinkedIn", "formato": "📰 Artículo", "tema": "5 lecciones de la semana sobre gestión energética", "estado": "PENDIENTE"},
+    {"dia": "Mié 4 Jun ✅", "hora": "18:00h", "red": "Instagram",  "formato": "🖼️ Imagen",      "tema": "Spread 188% PVPC vs OMIE — datos verificados REE+OMIE",             "estado": "PUBLICADO ✅"},
+    {"dia": "Mié 4 Jun ✅", "hora": "18:00h", "red": "LinkedIn",   "formato": "🖼️ Imagen",      "tema": "Spread 188% PVPC vs OMIE — datos verificados REE+OMIE",             "estado": "PUBLICADO ✅"},
+    {"dia": "Jue 5 Jun 🌍", "hora": "09:30h", "red": "LinkedIn",   "formato": "Texto",          "tema": "Día Mundial Medio Ambiente — tono B2B técnico + datos PLOCAN",      "estado": "⭐ PRIORITARIO"},
+    {"dia": "Jue 5 Jun 🌍", "hora": "10:00h", "red": "Instagram",  "formato": "🎬 Reel 35s",    "tema": "Día Mundial Medio Ambiente — datos reales renovables Canarias",      "estado": "⭐ PRIORITARIO"},
+    {"dia": "Vie 6 Jun",    "hora": "11:00h", "red": "Instagram",  "formato": "📱 Historias x3","tema": "Encuesta: ¿sabes qué es un VPP? + dato de la semana",                "estado": "PENDIENTE"},
+    {"dia": "Vie 6 Jun",    "hora": "11:00h", "red": "LinkedIn",   "formato": "📰 Artículo",    "tema": "Noticia 1 — Sistema multiagente IA: 125 municipios analizados",      "estado": "PENDIENTE"},
+    {"dia": "Lun 9 Jun",    "hora": "08:30h", "red": "LinkedIn",   "formato": "Texto",          "tema": "Seguimiento evento 20/06 — convocatoria stakeholders",               "estado": "PENDIENTE"},
+    {"dia": "Lun 9 Jun",    "hora": "10:00h", "red": "Instagram",  "formato": "🖼️ Carrusel",    "tema": "Edificios Cabildo GC con FV — prosumidores reales",                  "estado": "PENDIENTE"},
+    {"dia": "Jue 12 Jun",   "hora": "10:00h", "red": "Instagram",  "formato": "🎬 Reel",        "tema": "Análisis consumo Las Palmas GC vs Santa Cruz de Tenerife",           "estado": "PENDIENTE"},
+    {"dia": "Vie 13 Jun",   "hora": "11:00h", "red": "LinkedIn",   "formato": "📊 Carrusel",    "tema": "Resultados 40 días VPP operando — aprendizajes IA",                  "estado": "PENDIENTE"},
 ]
 
 color_red = {"Instagram": VERDE, "LinkedIn": AZUL, "Facebook": "#1877f2", "YouTube": "#ff0000"}

@@ -17,15 +17,15 @@ from dotenv import load_dotenv
 def _get_secrets():
     """Lee credenciales de st.secrets (Cloud) o .env (local)."""
     try:
-        # Streamlit Cloud: lanza KeyError si no están configurados
         return (
             st.secrets["FACEBOOK_TOKEN"],
             st.secrets.get("FACEBOOK_PAGE_ID", "1035845122935970"),
             st.secrets.get("INSTAGRAM_ACCOUNT_ID", "17841448302166910"),
             st.secrets.get("LINKEDIN_TOKEN", ""),
+            st.secrets.get("YOUTUBE_API_KEY", "AIzaSyCIv_tBox933cQZALXKnHxV9a-yWIihKe8"),
+            st.secrets.get("YOUTUBE_CHANNEL_ID", "UCUahanmSyiyN7pSKNFqQ5VA"),
         )
     except Exception:
-        # Local: busca .env junto al script, luego ruta absoluta como fallback
         _env = Path(__file__).parent / ".env"
         if not _env.exists():
             _env = Path(r"C:\Users\Cristela.Moreno\EquipodeAgentes\.env")
@@ -35,9 +35,11 @@ def _get_secrets():
             os.getenv("FACEBOOK_PAGE_ID", "1035845122935970"),
             os.getenv("INSTAGRAM_ACCOUNT_ID", "17841448302166910"),
             os.getenv("LINKEDIN_TOKEN", ""),
+            os.getenv("YOUTUBE_API_KEY", "AIzaSyCIv_tBox933cQZALXKnHxV9a-yWIihKe8"),
+            os.getenv("YOUTUBE_CHANNEL_ID", "UCUahanmSyiyN7pSKNFqQ5VA"),
         )
 
-FB_TOKEN, FB_PAGE_ID, IG_ID, LI_TOKEN = _get_secrets()
+FB_TOKEN, FB_PAGE_ID, IG_ID, LI_TOKEN, YT_KEY, YT_CHANNEL = _get_secrets()
 FB_API     = "https://graph.facebook.com/v21.0"
 
 VERDE  = "#00c878"
@@ -234,6 +236,83 @@ def get_facebook_data():
 
 
 @st.cache_data(ttl=300)
+def get_youtube_data():
+    """YouTube Data API v3 — canal Brain2Power."""
+    BASE = "https://www.googleapis.com/youtube/v3"
+    result = {"connected": False, "error": None}
+    try:
+        # Info del canal
+        r = requests.get(f"{BASE}/channels",
+            params={"part": "snippet,statistics", "id": YT_CHANNEL, "key": YT_KEY},
+            timeout=10)
+        if not r.ok:
+            result["error"] = f"HTTP {r.status_code}"
+            return result
+        items = r.json().get("items", [])
+        if not items:
+            result["error"] = "Canal no encontrado"
+            return result
+
+        ch    = items[0]
+        sn    = ch.get("snippet", {})
+        stats = ch.get("statistics", {})
+        result.update({
+            "connected":    True,
+            "channel_id":   ch["id"],
+            "nombre":       sn.get("title", "Brain2Power"),
+            "descripcion":  sn.get("description", "")[:120],
+            "suscriptores": int(stats.get("subscriberCount", 0)),
+            "videos_total": int(stats.get("videoCount", 0)),
+            "vistas_total": int(stats.get("viewCount", 0)),
+            "pais":         sn.get("country", "ES"),
+        })
+
+        # Últimos 10 vídeos
+        r2 = requests.get(f"{BASE}/search", params={
+            "part": "snippet", "channelId": YT_CHANNEL,
+            "order": "date", "maxResults": 10, "type": "video", "key": YT_KEY},
+            timeout=10)
+        videos_raw = r2.json().get("items", []) if r2.ok else []
+        video_ids  = ",".join(v["id"]["videoId"] for v in videos_raw if "videoId" in v.get("id", {}))
+
+        # Estadísticas de cada vídeo
+        videos = []
+        if video_ids:
+            r3 = requests.get(f"{BASE}/videos", params={
+                "part": "statistics,contentDetails,snippet",
+                "id": video_ids, "key": YT_KEY}, timeout=10)
+            if r3.ok:
+                for v in r3.json().get("items", []):
+                    vs = v.get("statistics", {})
+                    cd = v.get("contentDetails", {})
+                    sn2 = v.get("snippet", {})
+                    dur = cd.get("duration", "").replace("PT","").replace("M","'").replace("S","\"")
+                    videos.append({
+                        "id":        v["id"],
+                        "titulo":    sn2.get("title", "")[:60],
+                        "fecha":     sn2.get("publishedAt", "")[:10],
+                        "vistas":    int(vs.get("viewCount",  0)),
+                        "likes":     int(vs.get("likeCount",  0)),
+                        "comentarios": int(vs.get("commentCount", 0)),
+                        "duracion":  dur,
+                        "tipo":      "Short" if "S" in cd.get("duration","") and "M" not in cd.get("duration","") or
+                                     int(cd.get("duration","PT0S").replace("PT","").replace("S","").replace("M","").split("'")[0] if "'" in cd.get("duration","").replace("PT","").replace("M","'").replace("S","\"") else "999") < 60
+                                     else "Vídeo",
+                        "url":       f"https://youtu.be/{v['id']}",
+                    })
+
+        result["videos"] = videos
+        # Métricas 30d (suma de los vídeos recientes)
+        result["vistas_30d"]    = sum(v["vistas"]     for v in videos)
+        result["likes_30d"]     = sum(v["likes"]      for v in videos)
+        result["comentarios_30d"] = sum(v["comentarios"] for v in videos)
+
+    except Exception as e:
+        result["error"] = str(e)[:100]
+    return result
+
+
+@st.cache_data(ttl=300)
 def get_linkedin_data():
     """LinkedIn — perfil, estado del token y capacidades disponibles."""
     headers = {"Authorization": f"Bearer {LI_TOKEN}"}
@@ -281,6 +360,7 @@ with st.spinner("Cargando métricas en tiempo real..."):
     ig_data = get_instagram_data()
     fb_data = get_facebook_data()
     li_data = get_linkedin_data()
+    yt_data = get_youtube_data()
 
 # ── INSTAGRAM ─────────────────────────────────────────────────────────────────
 st.markdown('<div class="canal-header">📸 Instagram — @brain2power</div>', unsafe_allow_html=True)
@@ -497,6 +577,85 @@ with pend_col:
     • Solicitud en: <code>linkedin.com/developers/apps</code><br>
     • Proceso de revisión manual por LinkedIn (1-4 semanas)
     </div></div>""", unsafe_allow_html=True)
+
+st.markdown("---")
+
+# ── YOUTUBE ────────────────────────────────────────────────────────────────────
+ROJO_YT = "#ff0000"
+st.markdown(f'<div class="canal-header" style="background:rgba(255,0,0,0.08);border-color:rgba(255,0,0,0.3);color:{ROJO_YT}">📺 YouTube — @brain2power</div>', unsafe_allow_html=True)
+
+if yt_data.get("connected"):
+    # KPIs canal
+    yt1, yt2, yt3, yt4, yt5, yt6 = st.columns(6)
+    with yt1:
+        st.metric("🔔 Suscriptores", f"{yt_data.get('suscriptores', 0):,}")
+    with yt2:
+        st.metric("🎬 Vídeos totales", yt_data.get("videos_total", 0))
+    with yt3:
+        st.metric("👁️ Vistas totales", f"{yt_data.get('vistas_total', 0):,}")
+    with yt4:
+        st.metric("▶️ Vistas 30d", f"{yt_data.get('vistas_30d', 0):,}")
+    with yt5:
+        st.metric("👍 Likes 30d", yt_data.get("likes_30d", 0))
+    with yt6:
+        st.metric("💬 Comentarios 30d", yt_data.get("comentarios_30d", 0))
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Últimos vídeos + gráfico
+    videos = yt_data.get("videos", [])
+    col_yt_posts, col_yt_chart = st.columns([1, 1])
+
+    with col_yt_posts:
+        st.markdown("**📋 Últimos vídeos**")
+        for v in videos[:8]:
+            tipo_icon = "⚡ Short" if v.get("tipo") == "Short" else "🎬 Vídeo"
+            er = round(v["likes"] / max(v["vistas"], 1) * 100, 1)
+            st.markdown(f"""<div class="post-card">
+                <span class="tag-red">{tipo_icon} · {v['fecha']}</span> · {v['duracion']}<br>
+                👁️ <b>{v['vistas']:,}</b> vistas · 👍 {v['likes']} · 💬 {v['comentarios']} · ER: {er}%<br>
+                <span style="color:rgba(255,255,255,0.5);font-size:12px">{v['titulo']}...</span>
+            </div>""", unsafe_allow_html=True)
+
+    with col_yt_chart:
+        if videos:
+            fig_yt = go.Figure()
+            titulos = [v["titulo"][:25] + "…" for v in videos[:8]]
+            vistas  = [v["vistas"] for v in videos[:8]]
+            likes   = [v["likes"] for v in videos[:8]]
+            fig_yt.add_trace(go.Bar(name="Vistas", x=titulos, y=vistas,
+                                    marker_color=ROJO_YT, marker_opacity=0.8))
+            fig_yt.add_trace(go.Bar(name="Likes", x=titulos, y=likes,
+                                    marker_color=ORO, marker_opacity=0.9))
+            fig_yt.update_layout(
+                title="📊 Vistas y likes por vídeo (últimos 8)",
+                barmode="group",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="white",
+                height=320,
+                margin=dict(l=10, r=10, t=40, b=80),
+                xaxis=dict(tickangle=-30, gridcolor="rgba(255,255,255,0.05)"),
+                yaxis=dict(gridcolor="rgba(255,255,255,0.08)"),
+                legend=dict(orientation="h", y=1.1),
+            )
+            st.plotly_chart(fig_yt, use_container_width=True)
+
+        # Link al canal
+        ch_id = yt_data.get("channel_id", YT_CHANNEL)
+        st.markdown(f"""
+        <div style="background:rgba(255,0,0,0.07);border:1px solid rgba(255,0,0,0.25);
+            border-radius:10px;padding:12px 16px;margin-top:8px;font-size:13px">
+        🔗 <a href="https://www.youtube.com/channel/{ch_id}" target="_blank"
+            style="color:{ROJO_YT};font-weight:700">youtube.com/@brain2power</a><br>
+        <span style="color:rgba(255,255,255,0.5)">
+        Canal verificado · API key activa · Cuota: 10.000 unidades/día (gratuita)
+        </span></div>""", unsafe_allow_html=True)
+
+elif yt_data.get("error"):
+    st.error(f"❌ YouTube API: {yt_data['error']}")
+else:
+    st.warning("⚠️ YouTube no disponible")
 
 st.markdown("---")
 

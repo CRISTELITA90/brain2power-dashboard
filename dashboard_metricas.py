@@ -24,6 +24,7 @@ def _get_secrets():
             st.secrets.get("LINKEDIN_TOKEN", ""),
             st.secrets.get("YOUTUBE_API_KEY", "AIzaSyCIv_tBox933cQZALXKnHxV9a-yWIihKe8"),
             st.secrets.get("YOUTUBE_CHANNEL_ID", "UCUahanmSyiyN7pSKNFqQ5VA"),
+            st.secrets.get("X_BEARER_TOKEN", ""),
         )
     except Exception:
         _env = Path(__file__).parent / ".env"
@@ -37,9 +38,11 @@ def _get_secrets():
             os.getenv("LINKEDIN_TOKEN", ""),
             os.getenv("YOUTUBE_API_KEY", "AIzaSyCIv_tBox933cQZALXKnHxV9a-yWIihKe8"),
             os.getenv("YOUTUBE_CHANNEL_ID", "UCUahanmSyiyN7pSKNFqQ5VA"),
+            os.getenv("X_BEARER_TOKEN", ""),
         )
 
-FB_TOKEN, FB_PAGE_ID, IG_ID, LI_TOKEN, YT_KEY, YT_CHANNEL = _get_secrets()
+FB_TOKEN, FB_PAGE_ID, IG_ID, LI_TOKEN, YT_KEY, YT_CHANNEL, X_TOKEN = _get_secrets()
+X_USERNAME = "Brain2Power"
 FB_API     = "https://graph.facebook.com/v21.0"
 
 VERDE  = "#00c878"
@@ -236,6 +239,81 @@ def get_facebook_data():
 
 
 @st.cache_data(ttl=300)
+def get_x_data():
+    """X (Twitter) API v2 — perfil y tweets recientes de @Brain2Power."""
+    BASE   = "https://api.twitter.com/2"
+    result = {"connected": False, "token_configurado": bool(X_TOKEN and len(X_TOKEN) > 20)}
+
+    if not X_TOKEN or len(X_TOKEN) < 20:
+        result["error"] = "X_BEARER_TOKEN no configurado en Streamlit Secrets"
+        return result
+
+    hdrs = {"Authorization": f"Bearer {X_TOKEN}"}
+
+    try:
+        # Perfil del usuario
+        r = requests.get(f"{BASE}/users/by/username/{X_USERNAME}",
+            params={"user.fields": "public_metrics,description,created_at,profile_image_url"},
+            headers=hdrs, timeout=10)
+
+        if r.status_code == 401:
+            result["error"] = "Token inválido o expirado (401)"
+            return result
+        if r.status_code == 403:
+            result["error"] = "Plan gratuito X no permite este endpoint (403)"
+            return result
+        if not r.ok:
+            result["error"] = f"HTTP {r.status_code}: {r.text[:100]}"
+            return result
+
+        user = r.json().get("data", {})
+        pm   = user.get("public_metrics", {})
+        result.update({
+            "connected":     True,
+            "user_id":       user.get("id", ""),
+            "nombre":        user.get("name", "Brain2Power"),
+            "username":      user.get("username", "Brain2Power"),
+            "descripcion":   user.get("description", "")[:120],
+            "seguidores":    pm.get("followers_count", 0),
+            "siguiendo":     pm.get("following_count", 0),
+            "tweets_total":  pm.get("tweet_count", 0),
+            "listas":        pm.get("listed_count", 0),
+        })
+
+        # Tweets recientes con métricas
+        uid = result["user_id"]
+        r2  = requests.get(f"{BASE}/users/{uid}/tweets",
+            params={"max_results": 10,
+                    "tweet.fields": "public_metrics,created_at,text",
+                    "exclude": "retweets,replies"},
+            headers=hdrs, timeout=10)
+
+        tweets = []
+        if r2.ok:
+            for tw in r2.json().get("data", []):
+                pm2 = tw.get("public_metrics", {})
+                tweets.append({
+                    "id":          tw["id"],
+                    "texto":       tw.get("text", "")[:100],
+                    "fecha":       tw.get("created_at", "")[:10],
+                    "likes":       pm2.get("like_count",      0),
+                    "retweets":    pm2.get("retweet_count",   0),
+                    "replies":     pm2.get("reply_count",     0),
+                    "impresiones": pm2.get("impression_count",0),
+                    "url":         f"https://x.com/{X_USERNAME}/status/{tw['id']}",
+                })
+
+        result["tweets"]         = tweets
+        result["likes_30d"]      = sum(t["likes"]       for t in tweets)
+        result["retweets_30d"]   = sum(t["retweets"]    for t in tweets)
+        result["impresiones_30d"]= sum(t["impresiones"] for t in tweets)
+
+    except Exception as e:
+        result["error"] = str(e)[:100]
+    return result
+
+
+@st.cache_data(ttl=300)
 def get_youtube_data():
     """YouTube Data API v3 — canal Brain2Power."""
     BASE = "https://www.googleapis.com/youtube/v3"
@@ -360,6 +438,7 @@ with st.spinner("Cargando métricas en tiempo real..."):
     ig_data = get_instagram_data()
     fb_data = get_facebook_data()
     li_data = get_linkedin_data()
+    x_data  = get_x_data()
     yt_data = get_youtube_data()
 
 # ── INSTAGRAM ─────────────────────────────────────────────────────────────────
@@ -577,6 +656,85 @@ with pend_col:
     • Solicitud en: <code>linkedin.com/developers/apps</code><br>
     • Proceso de revisión manual por LinkedIn (1-4 semanas)
     </div></div>""", unsafe_allow_html=True)
+
+st.markdown("---")
+
+# ── X (TWITTER) ───────────────────────────────────────────────────────────────
+NEGRO_X = "#e7e9ea"
+st.markdown(f'<div class="canal-header" style="background:rgba(231,233,234,0.06);border-color:rgba(231,233,234,0.25);color:{NEGRO_X}">🐦 X (Twitter) — @Brain2Power</div>', unsafe_allow_html=True)
+
+if x_data.get("connected"):
+    x1, x2, x3, x4, x5, x6 = st.columns(6)
+    with x1:
+        st.metric("👥 Seguidores", f"{x_data.get('seguidores', 0):,}")
+    with x2:
+        st.metric("📝 Tweets totales", f"{x_data.get('tweets_total', 0):,}")
+    with x3:
+        st.metric("👁️ Impresiones 10 tw.", f"{x_data.get('impresiones_30d', 0):,}")
+    with x4:
+        st.metric("❤️ Likes 10 tw.", x_data.get("likes_30d", 0))
+    with x5:
+        st.metric("🔁 Retweets 10 tw.", x_data.get("retweets_30d", 0))
+    with x6:
+        er = round(x_data.get("likes_30d", 0) / max(x_data.get("impresiones_30d", 1), 1) * 100, 2)
+        st.metric("📊 ER (likes/imp.)", f"{er}%")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_x_posts, col_x_chart = st.columns([1, 1])
+
+    tweets = x_data.get("tweets", [])
+    with col_x_posts:
+        st.markdown("**📋 Tweets recientes**")
+        for tw in tweets[:8]:
+            er_tw = round(tw["likes"] / max(tw["impresiones"], 1) * 100, 2)
+            st.markdown(f"""<div class="post-card">
+                <span style="color:{NEGRO_X};font-weight:700">{tw['fecha']}</span><br>
+                👁️ <b>{tw['impresiones']:,}</b> · ❤️ {tw['likes']} · 🔁 {tw['retweets']} · 💬 {tw['replies']} · ER: {er_tw}%<br>
+                <span style="color:rgba(255,255,255,0.5);font-size:12px">{tw['texto']}...</span>
+            </div>""", unsafe_allow_html=True)
+
+    with col_x_chart:
+        if tweets:
+            labels  = [tw["fecha"] for tw in tweets[:8]]
+            imp     = [tw["impresiones"] for tw in tweets[:8]]
+            lks     = [tw["likes"] for tw in tweets[:8]]
+            fig_x   = go.Figure()
+            fig_x.add_trace(go.Bar(name="Impresiones", x=labels, y=imp,
+                                   marker_color=NEGRO_X, marker_opacity=0.7))
+            fig_x.add_trace(go.Bar(name="Likes", x=labels, y=lks,
+                                   marker_color=ORO, marker_opacity=0.9))
+            fig_x.update_layout(
+                title="📊 Impresiones y likes por tweet",
+                barmode="group",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="white",
+                height=300,
+                margin=dict(l=10, r=10, t=40, b=40),
+                xaxis=dict(tickangle=-30, gridcolor="rgba(255,255,255,0.05)"),
+                yaxis=dict(gridcolor="rgba(255,255,255,0.08)"),
+                legend=dict(orientation="h", y=1.1),
+            )
+            st.plotly_chart(fig_x, use_container_width=True)
+
+elif not x_data.get("token_configurado"):
+    st.markdown(f"""
+    <div style="background:rgba(231,233,234,0.05);border:1px solid rgba(231,233,234,0.2);
+        border-radius:10px;padding:18px 22px;">
+    <div style="color:{NEGRO_X};font-weight:700;font-size:15px;margin-bottom:10px">
+        🐦 X — Configuración pendiente</div>
+    <div style="font-size:13px;line-height:2;color:rgba(255,255,255,0.7)">
+    <b>Pasos para activar:</b><br>
+    1. Ir a <code>developer.x.com</code> → crear app gratuita<br>
+    2. Copiar el <b>Bearer Token</b><br>
+    3. Añadir en Streamlit Secrets: <code>X_BEARER_TOKEN = "tu_token"</code><br>
+    4. El dashboard se actualiza automáticamente
+    </div>
+    <div style="margin-top:10px;font-size:12px;color:rgba(255,255,255,0.35)">
+    Plan gratuito X: 500K lecturas/mes · Perfil + tweets + métricas disponibles
+    </div></div>""", unsafe_allow_html=True)
+elif x_data.get("error"):
+    st.warning(f"⚠️ X API: {x_data['error']}")
 
 st.markdown("---")
 

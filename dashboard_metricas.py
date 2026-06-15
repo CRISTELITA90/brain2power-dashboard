@@ -838,19 +838,19 @@ else:
 st.markdown("---")
 
 # ── PLAN DE CONTENIDOS SEMANA ──────────────────────────────────────────────────
-st.markdown("## 📅 Plan de contenidos — Semana 4-8 Junio 2026")
+st.markdown("## 📅 Plan de contenidos — Semana 15-21 Junio 2026")
 
 plan = [
-    {"dia": "Mié 4 Jun ✅", "hora": "18:00h", "red": "Instagram",  "formato": "🖼️ Imagen",      "tema": "Spread 188% PVPC vs OMIE — datos verificados REE+OMIE",             "estado": "PUBLICADO ✅"},
-    {"dia": "Mié 4 Jun ✅", "hora": "18:00h", "red": "LinkedIn",   "formato": "🖼️ Imagen",      "tema": "Spread 188% PVPC vs OMIE — datos verificados REE+OMIE",             "estado": "PUBLICADO ✅"},
-    {"dia": "Jue 5 Jun 🌍", "hora": "09:30h", "red": "LinkedIn",   "formato": "Texto",          "tema": "Día Mundial Medio Ambiente — tono B2B técnico + datos PLOCAN",      "estado": "⭐ PRIORITARIO"},
-    {"dia": "Jue 5 Jun 🌍", "hora": "10:00h", "red": "Instagram",  "formato": "🎬 Reel 35s",    "tema": "Día Mundial Medio Ambiente — datos reales renovables Canarias",      "estado": "⭐ PRIORITARIO"},
-    {"dia": "Vie 6 Jun",    "hora": "11:00h", "red": "Instagram",  "formato": "📱 Historias x3","tema": "Encuesta: ¿sabes qué es un VPP? + dato de la semana",                "estado": "PENDIENTE"},
-    {"dia": "Vie 6 Jun",    "hora": "11:00h", "red": "LinkedIn",   "formato": "📰 Artículo",    "tema": "Noticia 1 — Sistema multiagente IA: 125 municipios analizados",      "estado": "PENDIENTE"},
-    {"dia": "Lun 9 Jun",    "hora": "08:30h", "red": "LinkedIn",   "formato": "Texto",          "tema": "Seguimiento evento 20/06 — convocatoria stakeholders",               "estado": "PENDIENTE"},
-    {"dia": "Lun 9 Jun",    "hora": "10:00h", "red": "Instagram",  "formato": "🖼️ Carrusel",    "tema": "Edificios Cabildo GC con FV — prosumidores reales",                  "estado": "PENDIENTE"},
-    {"dia": "Jue 12 Jun",   "hora": "10:00h", "red": "Instagram",  "formato": "🎬 Reel",        "tema": "Análisis consumo Las Palmas GC vs Santa Cruz de Tenerife",           "estado": "PENDIENTE"},
-    {"dia": "Vie 13 Jun",   "hora": "11:00h", "red": "LinkedIn",   "formato": "📊 Carrusel",    "tema": "Resultados 40 días VPP operando — aprendizajes IA",                  "estado": "PENDIENTE"},
+    {"dia": "Lun 15 Jun ✅", "hora": "12:00h", "red": "LinkedIn",   "formato": "📊 Carrusel",    "tema": "5 razones por las que Canarias necesita un VPP antes que nadie",    "estado": "PUBLICADO ✅"},
+    {"dia": "Lun 15 Jun",    "hora": "18:00h", "red": "Instagram",  "formato": "🖼️ Imagen",      "tema": "Solsticio preview — En 6 días llega el día más largo del año",       "estado": "PENDIENTE"},
+    {"dia": "Mar 16 Jun",    "hora": "12:00h", "red": "Instagram",  "formato": "🎬 Reel 30s",    "tema": "¿Cuánto ahorras con una VPP? Cálculo real — CTA: comenta tu factura", "estado": "⭐ PRIORITARIO"},
+    {"dia": "Mié 17 Jun",    "hora": "08:00h", "red": "LinkedIn",   "formato": "Texto largo",    "tema": "Lo que aprendimos validando un VPP en el Atlántico — 3 insights",    "estado": "PENDIENTE"},
+    {"dia": "Jue 18 Jun",    "hora": "17:00h", "red": "Instagram",  "formato": "📊 Carrusel",    "tema": "El equipo detrás de Brain2Power — PLOCAN · ITG · Regenera",          "estado": "PENDIENTE"},
+    {"dia": "Jue 18 Jun",    "hora": "17:00h", "red": "LinkedIn",   "formato": "📊 Carrusel",    "tema": "El equipo detrás de Brain2Power — versión B2B",                      "estado": "PENDIENTE"},
+    {"dia": "Vie 19 Jun",    "hora": "18:00h", "red": "Instagram",  "formato": "🎬 Reel 20s",    "tema": "Canarias: 8 horas de sol al día. Aún compramos petróleo.",           "estado": "⭐ PRIORITARIO"},
+    {"dia": "Sáb 20 Jun",    "hora": "11:00h", "red": "Instagram",  "formato": "🖼️ Imagen",      "tema": "Preview Solsticio — ¿Cuánta energía solar se desperdicia sin VPP?",  "estado": "PENDIENTE"},
+    {"dia": "Dom 21 Jun ☀️", "hora": "10:00h", "red": "Instagram",  "formato": "📊 Carrusel",    "tema": "SOLSTICIO — El día con más energía solar del año. B2P lo registra.", "estado": "⭐ PRIORITARIO"},
+    {"dia": "Dom 21 Jun ☀️", "hora": "10:00h", "red": "LinkedIn",   "formato": "Texto",          "tema": "Solsticio de Verano — reflexión energética desde PLOCAN",            "estado": "PENDIENTE"},
 ]
 
 color_red = {"Instagram": VERDE, "LinkedIn": AZUL, "Facebook": "#1877f2", "YouTube": "#ff0000"}
